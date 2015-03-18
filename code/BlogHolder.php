@@ -218,7 +218,7 @@ class BlogHolder_Controller extends BlogTree_Controller {
 			'Form' => $this->BlogEntryForm()
 		));
 
-		return $page->renderWith('Page');
+		return $page->renderWith(array('BlogHolder_post', 'Page'));
 	}
 
 	/**
@@ -252,24 +252,30 @@ class BlogHolder_Controller extends BlogTree_Controller {
 			$tagfield = new TextField('Tags');
 		}
 		
-		$field = 'TextField';
-		if(!$this->AllowCustomAuthors && !Permission::check('ADMIN')) {
-			$field = 'ReadonlyField';
-		}
 		$fields = new FieldList(
 			new HiddenField("ID", "ID"),
 			new TextField("Title", _t('BlogHolder.SJ', "Subject")),
-			new $field("Author", _t('BlogEntry.AU'), $membername),
+			$author = new TextField("Author", _t('BlogEntry.AU'), $membername),
+			$upField = UploadField::create('ListingImage', 'Image')
+				->setFolderName(Config::inst()->get('Upload', 'uploads_folder'))
+				->setCanAttachExisting(false)
+				->setCanUpload(true)
+				->setCanPreviewFolder(false)
+				->setOverwriteWarning(false),
 			$contentfield,
 			$tagfield,
 			new LiteralField("Tagsnote"," <label id='tagsnote'>"._t('BlogHolder.TE', "For example: sport, personal, science fiction")."<br/>" .
 												_t('BlogHolder.SPUC', "Please separate tags using commas.")."</label>")
 		);
 		
+		if(!$this->AllowCustomAuthors && !Permission::check('ADMIN')) {
+			$author->setReadonly(true);
+		}
+
 		$submitAction = new FormAction('postblog', _t('BlogHolder.POST', 'Post blog entry'));
 
 		$actions = new FieldList($submitAction);
-		$validator = new RequiredFields('Title','BlogPost');
+		$validator = new RequiredFields('Title');
 
 		$form = new Form($this, 'BlogEntryForm',$fields, $actions,$validator);
 
@@ -280,9 +286,7 @@ class BlogHolder_Controller extends BlogTree_Controller {
 				$form->Fields()->fieldByName('BlogPost')->setValue($entry->Content);
 
 			}
-		} else {
-			$form->loadDataFrom(array("Author" => Cookie::get("BlogHolder_Name")));
-		}
+		} 
 
 		return $form;
 	}
@@ -290,7 +294,6 @@ class BlogHolder_Controller extends BlogTree_Controller {
 	function postblog($data, $form) {
 		if(!Permission::check('BLOGMANAGEMENT')) return Security::permissionFailure();
 
-		Cookie::set("BlogHolder_Name", $data['Author']);
 		$blogentry = false;
 
 		if(isset($data['ID']) && $data['ID']) {
@@ -308,6 +311,7 @@ class BlogHolder_Controller extends BlogTree_Controller {
 		$blogentry->ParentID = $this->ID;
 
 		$blogentry->Content = str_replace("\r\n", "\n", $form->Fields()->fieldByName('BlogPost')->dataValue());
+		$blogentry->Author 	= $form->Fields()->fieldByName('Author')->dataValue();
 
 		if(Object::has_extension($this->ClassName, 'Translatable')) {
 			$blogentry->Locale = $this->Locale; 
@@ -315,6 +319,8 @@ class BlogHolder_Controller extends BlogTree_Controller {
 
 		$blogentry->writeToStage("Stage");
 		$blogentry->publish("Stage", "Live");
+		
+		$this->extend('onAfterPostBlog', $blogentry);
 
 		$this->redirect($this->Link());
 	}
